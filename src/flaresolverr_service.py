@@ -287,6 +287,9 @@ def _evil_logic(req: V1RequestBase, driver: WebDriver, method: str) -> Challenge
     res.status = STATUS_OK
     res.message = ""
 
+    # Calculate timeout for challenge solving
+    max_timeout = int(req.maxTimeout) / 1000
+    challenge_start_time = time.time()
 
     # navigate to the page
     logging.debug(f'Navigating to... {req.url}')
@@ -344,17 +347,31 @@ def _evil_logic(req: V1RequestBase, driver: WebDriver, method: str) -> Challenge
     attempt = 0
     if challenge_found:
         while True:
+            # Check if we've exceeded the maximum timeout
+            elapsed_time = time.time() - challenge_start_time
+            if elapsed_time >= max_timeout:
+                logging.debug(f"Challenge solving timeout reached after {elapsed_time:.2f} seconds")
+                break
+
             try:
                 attempt = attempt + 1
+                # Calculate remaining timeout for this attempt
+                remaining_timeout = max_timeout - elapsed_time
+                wait_timeout = min(SHORT_TIMEOUT, remaining_timeout)
+                
+                if wait_timeout <= 0:
+                    logging.debug("No time remaining for challenge solving")
+                    break
+
                 # wait until the title changes
                 for title in CHALLENGE_TITLES:
                     logging.debug("Waiting for title (attempt " + str(attempt) + "): " + title)
-                    WebDriverWait(driver, SHORT_TIMEOUT).until_not(title_is(title))
+                    WebDriverWait(driver, wait_timeout).until_not(title_is(title))
 
                 # then wait until all the selectors disappear
                 for selector in CHALLENGE_SELECTORS:
                     logging.debug("Waiting for selector (attempt " + str(attempt) + "): " + selector)
-                    WebDriverWait(driver, SHORT_TIMEOUT).until_not(
+                    WebDriverWait(driver, wait_timeout).until_not(
                         presence_of_element_located((By.CSS_SELECTOR, selector)))
 
                 # all elements not found
@@ -372,7 +389,10 @@ def _evil_logic(req: V1RequestBase, driver: WebDriver, method: str) -> Challenge
         logging.debug("Waiting for redirect")
         # noinspection PyBroadException
         try:
-            WebDriverWait(driver, SHORT_TIMEOUT).until(staleness_of(html_element))
+            remaining_timeout = max_timeout - (time.time() - challenge_start_time)
+            redirect_timeout = min(SHORT_TIMEOUT, max(0, remaining_timeout))
+            if redirect_timeout > 0:
+                WebDriverWait(driver, redirect_timeout).until(staleness_of(html_element))
         except Exception:
             logging.debug("Timeout waiting for redirect")
 
