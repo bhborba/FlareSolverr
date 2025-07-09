@@ -9,17 +9,16 @@ import requests
 
 
 def clean_files():
-    project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     try:
-        shutil.rmtree(os.path.join(project_root, 'build'))
+        shutil.rmtree(os.path.join(os.path.dirname(os.path.abspath(__file__)), os.pardir, 'build'))
     except Exception:
         pass
     try:
-        shutil.rmtree(os.path.join(project_root, 'dist'))
+        shutil.rmtree(os.path.join(os.path.dirname(os.path.abspath(__file__)), os.pardir, 'dist'))
     except Exception:
         pass
     try:
-        shutil.rmtree(os.path.join(project_root, 'dist_chrome'))
+        shutil.rmtree(os.path.join(os.path.dirname(os.path.abspath(__file__)), os.pardir, 'dist_chrome'))
     except Exception:
         pass
 
@@ -29,8 +28,7 @@ def download_chromium():
     revision = "1453032" if os.name == 'nt' else '1453031'
     arch = 'Win_x64' if os.name == 'nt' else 'Linux_x64'
     dl_file = 'chrome-win' if os.name == 'nt' else 'chrome-linux'
-    project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    dl_path = os.path.join(project_root, 'dist_chrome')
+    dl_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), os.pardir, 'dist_chrome')
     dl_path_folder = os.path.join(dl_path, dl_file)
     dl_path_zip = dl_path_folder + '.zip'
 
@@ -69,33 +67,20 @@ def download_chromium():
 
 def run_pyinstaller():
     sep = ';' if os.name == 'nt' else ':'
-    
-    # Get paths relative to project root
-    project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    icon_path = os.path.join(project_root, "resources", "flaresolverr_logo.ico")
-    package_json_path = os.path.join(project_root, "package.json")
-    chrome_path = os.path.join(project_root, "dist_chrome", "chrome")
-    script_path = os.path.join(project_root, "src", "flaresolverr.py")
-    
     result = subprocess.run([sys.executable, "-m", "PyInstaller",
-                             "--icon", icon_path,
-                             "--add-data", f"{package_json_path}{sep}.",
-                             "--add-data", f"{chrome_path}{sep}chrome",
-                             script_path],
-                            cwd=project_root, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                             "--icon", "resources/flaresolverr_logo.ico",
+                             "--add-data", f"package.json{sep}.",
+                             "--add-data", f"{os.path.join('dist_chrome', 'chrome')}{sep}chrome",
+                             os.path.join("src", "flaresolverr.py")],
+                            cwd=os.pardir, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     if result.returncode != 0:
         print(result.stderr.decode('utf-8'))
         raise Exception("Error running pyInstaller")
 
 
 def compress_package():
-    project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    dist_folder = os.path.join(project_root, 'dist')
+    dist_folder = os.path.join(os.path.dirname(os.path.abspath(__file__)), os.pardir, 'dist')
     package_folder = os.path.join(dist_folder, 'package')
-    
-    # Create package folder if it doesn't exist
-    os.makedirs(package_folder, exist_ok=True)
-    
     shutil.move(os.path.join(dist_folder, 'flaresolverr'), os.path.join(package_folder, 'flaresolverr'))
     print("Package folder: " + package_folder)
 

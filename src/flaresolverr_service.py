@@ -43,12 +43,15 @@ CHALLENGE_TITLES = [
 CHALLENGE_SELECTORS = [
     # Cloudflare
     '#cf-challenge-running', '.ray_id', '.attack-box', '#cf-please-wait', '#challenge-spinner', '#trk_jschal_js', '#turnstile-wrapper', '.lds-ring',
+    # Modern Cloudflare selectors
+    '[data-testid="challenge-running"]', '.cf-loading-spinner', '.cf-challenge-container', '#challenge-form',
+    '.challenge-form', '.challenge-running', '.cf-im-under-attack', '.cf-browser-verification',
     # Custom CloudFlare for EbookParadijs, Film-Paleis, MuziekFabriek and Puur-Hollands
     'td.info #js_info',
     # Fairlane / pararius.com
     'div.vc div.text-box h2'
 ]
-SHORT_TIMEOUT = 1
+SHORT_TIMEOUT = 5
 SESSIONS_STORAGE = SessionsStorage()
 
 
@@ -350,7 +353,7 @@ def _evil_logic(req: V1RequestBase, driver: WebDriver, method: str) -> Challenge
             # Check if we've exceeded the maximum timeout
             elapsed_time = time.time() - challenge_start_time
             if elapsed_time >= max_timeout:
-                logging.debug(f"Challenge solving timeout reached after {elapsed_time:.2f} seconds")
+                logging.info(f"Challenge solving timeout reached after {elapsed_time:.2f} seconds")
                 break
 
             try:
@@ -360,22 +363,79 @@ def _evil_logic(req: V1RequestBase, driver: WebDriver, method: str) -> Challenge
                 wait_timeout = min(SHORT_TIMEOUT, remaining_timeout)
                 
                 if wait_timeout <= 0:
-                    logging.debug("No time remaining for challenge solving")
+                    logging.info("No time remaining for challenge solving")
                     break
 
-                # wait until the title changes
-                for title in CHALLENGE_TITLES:
-                    logging.debug("Waiting for title (attempt " + str(attempt) + "): " + title)
-                    WebDriverWait(driver, wait_timeout).until_not(title_is(title))
-
-                # then wait until all the selectors disappear
+                logging.info(f"Challenge solving attempt {attempt} - elapsed: {elapsed_time:.2f}s, remaining: {remaining_timeout:.2f}s")
+                
+                # Check current page title and selectors
+                current_title = driver.title
+                logging.debug(f"Current page title: {current_title}")
+                
+                # Check if any challenge selectors are still present
+                challenge_selectors_present = []
                 for selector in CHALLENGE_SELECTORS:
-                    logging.debug("Waiting for selector (attempt " + str(attempt) + "): " + selector)
-                    WebDriverWait(driver, wait_timeout).until_not(
-                        presence_of_element_located((By.CSS_SELECTOR, selector)))
+                    elements = driver.find_elements(By.CSS_SELECTOR, selector)
+                    if elements:
+                        challenge_selectors_present.append(selector)
+                        logging.debug(f"Challenge selector still present: {selector}")
+                
+                # Check if any challenge titles are still present
+                challenge_title_present = False
+                for title in CHALLENGE_TITLES:
+                    if title.lower() == current_title.lower():
+                        challenge_title_present = True
+                        logging.debug(f"Challenge title still present: {title}")
+                        break
 
-                # all elements not found
-                break
+                # If no challenge elements found, we're done
+                if not challenge_selectors_present and not challenge_title_present:
+                    logging.info("No challenge elements found, challenge appears to be solved")
+                    break
+
+                # Try to interact with the challenge if needed
+                click_verify(driver)
+
+                # Wait for challenge to potentially resolve
+                logging.debug(f"Waiting {SHORT_TIMEOUT} seconds for challenge to resolve...")
+                time.sleep(SHORT_TIMEOUT)
+
+                # Check again after waiting
+                challenge_still_present = False
+                current_title = driver.title
+                
+                # Check if challenge title is still present
+                for title in CHALLENGE_TITLES:
+                    if title.lower() == current_title.lower():
+                        challenge_still_present = True
+                        logging.debug(f"Challenge title still present after wait: {title}")
+                        break
+                
+                # Check if challenge selectors are still present
+                if not challenge_still_present:
+                    for selector in CHALLENGE_SELECTORS:
+                        elements = driver.find_elements(By.CSS_SELECTOR, selector)
+                        if elements:
+                            challenge_still_present = True
+                            logging.debug(f"Challenge selector still present after wait: {selector}")
+                            break
+                
+                # If challenge is no longer present, we're done
+                if not challenge_still_present:
+                    logging.info("Challenge elements no longer present after wait, challenge solved")
+                    break
+                
+                # If we've been trying for more than 30 seconds, let's try a different approach
+                if elapsed_time > 30:
+                    logging.debug("Extended challenge solving - trying alternative approach")
+                    try:
+                        # Try clicking anywhere on the page to trigger completion
+                        body = driver.find_element(By.TAG_NAME, "body")
+                        body.click()
+                        time.sleep(2)
+                    except Exception:
+                        logging.debug("Could not click on page body")
+                        pass
 
             except TimeoutException:
                 logging.debug("Timeout waiting for selector")
