@@ -349,6 +349,10 @@ def _evil_logic(req: V1RequestBase, driver: WebDriver, method: str) -> Challenge
 
     attempt = 0
     if challenge_found:
+        # Try a more patient approach - wait longer intervals and check periodically
+        check_interval = 10  # Check every 10 seconds
+        last_check_time = challenge_start_time
+        
         while True:
             # Check if we've exceeded the maximum timeout
             elapsed_time = time.time() - challenge_start_time
@@ -356,21 +360,18 @@ def _evil_logic(req: V1RequestBase, driver: WebDriver, method: str) -> Challenge
                 logging.info(f"Challenge solving timeout reached after {elapsed_time:.2f} seconds")
                 break
 
-            try:
+            # Only check periodically to avoid overwhelming the challenge
+            if time.time() - last_check_time >= check_interval:
                 attempt = attempt + 1
-                # Calculate remaining timeout for this attempt
-                remaining_timeout = max_timeout - elapsed_time
-                wait_timeout = min(SHORT_TIMEOUT, remaining_timeout)
+                last_check_time = time.time()
                 
-                if wait_timeout <= 0:
-                    logging.info("No time remaining for challenge solving")
-                    break
-
-                logging.info(f"Challenge solving attempt {attempt} - elapsed: {elapsed_time:.2f}s, remaining: {remaining_timeout:.2f}s")
+                logging.info(f"Challenge solving check {attempt} - elapsed: {elapsed_time:.2f}s, remaining: {max_timeout - elapsed_time:.2f}s")
                 
-                # Check current page title and selectors
+                # Check current page state
                 current_title = driver.title
+                current_url = driver.current_url
                 logging.debug(f"Current page title: {current_title}")
+                logging.debug(f"Current URL: {current_url}")
                 
                 # Check if any challenge selectors are still present
                 challenge_selectors_present = []
@@ -392,58 +393,37 @@ def _evil_logic(req: V1RequestBase, driver: WebDriver, method: str) -> Challenge
                 if not challenge_selectors_present and not challenge_title_present:
                     logging.info("No challenge elements found, challenge appears to be solved")
                     break
-
-                # Try to interact with the challenge if needed
-                click_verify(driver)
-
-                # Wait for challenge to potentially resolve
-                logging.debug(f"Waiting {SHORT_TIMEOUT} seconds for challenge to resolve...")
-                time.sleep(SHORT_TIMEOUT)
-
-                # Check again after waiting
-                challenge_still_present = False
-                current_title = driver.title
                 
-                # Check if challenge title is still present
-                for title in CHALLENGE_TITLES:
-                    if title.lower() == current_title.lower():
-                        challenge_still_present = True
-                        logging.debug(f"Challenge title still present after wait: {title}")
-                        break
-                
-                # Check if challenge selectors are still present
-                if not challenge_still_present:
-                    for selector in CHALLENGE_SELECTORS:
-                        elements = driver.find_elements(By.CSS_SELECTOR, selector)
-                        if elements:
-                            challenge_still_present = True
-                            logging.debug(f"Challenge selector still present after wait: {selector}")
-                            break
-                
-                # If challenge is no longer present, we're done
-                if not challenge_still_present:
-                    logging.info("Challenge elements no longer present after wait, challenge solved")
+                # Try to interact with the challenge if needed, but only occasionally
+                if attempt % 2 == 0:  # Every other attempt
+                    click_verify(driver)
+                    
+            else:
+                # Just wait a bit and continue
+                time.sleep(1)
+
+        # Final verification after the loop
+        logging.debug("Final verification of challenge status")
+        current_title = driver.title
+        final_challenge_present = False
+        
+        # Final check for challenge elements
+        for title in CHALLENGE_TITLES:
+            if title.lower() == current_title.lower():
+                final_challenge_present = True
+                break
+        
+        if not final_challenge_present:
+            for selector in CHALLENGE_SELECTORS:
+                elements = driver.find_elements(By.CSS_SELECTOR, selector)
+                if elements:
+                    final_challenge_present = True
                     break
-                
-                # If we've been trying for more than 30 seconds, let's try a different approach
-                if elapsed_time > 30:
-                    logging.debug("Extended challenge solving - trying alternative approach")
-                    try:
-                        # Try clicking anywhere on the page to trigger completion
-                        body = driver.find_element(By.TAG_NAME, "body")
-                        body.click()
-                        time.sleep(2)
-                    except Exception:
-                        logging.debug("Could not click on page body")
-                        pass
-
-            except TimeoutException:
-                logging.debug("Timeout waiting for selector")
-
-                click_verify(driver)
-
-                # update the html (cloudflare reloads the page every 5 s)
-                html_element = driver.find_element(By.TAG_NAME, "html")
+        
+        if not final_challenge_present:
+            logging.info("Challenge successfully resolved!")
+        else:
+            logging.warning("Challenge elements may still be present after timeout")
 
         # waits until cloudflare redirection ends
         logging.debug("Waiting for redirect")
